@@ -1,0 +1,31 @@
+version: '3.9'
+
+services:
+  redis:
+    image: redis:7.2-alpine
+    command: ["redis-server", "--requirepass", "YourStrong@123"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5000:80"
+    depends_on:
+      - redis
+    environment:
+      ConnectionStrings__Redis: "redis:6379,password=YourStrong@123,abortConnect=false"
+      Redis__InstanceName: "ChineseAuctionCache:"
+      Redis__GiftListTTLSeconds: "60"
+      ASPNETCORE_URLS: "http://+:80"
+      # אם תרצי להפעיל את ה-API מול SQL Server מקומי במקום LocalDB, עדכני את מיתאם החיבור כאן
+      ConnectionStrings__DefaultConnection: "Server=host.docker.internal;Database=Chinese_Auction;Integrated Security=True;TrustServerCertificate=True;"
+
+volumes:
+  redis-data:
+    driver: local
