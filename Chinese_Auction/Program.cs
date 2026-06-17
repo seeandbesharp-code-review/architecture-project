@@ -52,7 +52,7 @@ builder.Services.AddSwaggerGen(options =>
 
 builder.Services.AddStackExchangeRedisCache(options =>
 {
-    options.Configuration = builder.Configuration.GetConnectionString("Redis") ?? "redis:6379,password=YourStrong@123,abortConnect=false";
+    options.Configuration = builder.Configuration.GetConnectionString("Redis") ?? "redis:6379,abortConnect=false";
     options.InstanceName = builder.Configuration["Redis:InstanceName"] ?? "ChineseAuctionCache:";
 });
 
@@ -177,6 +177,17 @@ builder.Services.AddControllers()
 
 
 var app = builder.Build();
+
+app.UseExceptionHandler(exceptionHandlerApp =>
+{
+    exceptionHandlerApp.Run(async context =>
+    {
+        context.Response.StatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status500InternalServerError;
+        context.Response.ContentType = "application/json";
+        var payload = System.Text.Json.JsonSerializer.Serialize(new { error = "An unexpected error occurred." });
+        await context.Response.WriteAsync(payload);
+    });
+});
 
 app.UseCors("AllowAngular");
 
