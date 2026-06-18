@@ -52,7 +52,7 @@ builder.Services.AddSwaggerGen(options =>
 
 builder.Services.AddStackExchangeRedisCache(options =>
 {
-    options.Configuration = builder.Configuration.GetConnectionString("Redis") ?? "redis:6379,password=YourStrong@123,abortConnect=false";
+    options.Configuration = builder.Configuration.GetConnectionString("Redis") ?? "redis:6379,abortConnect=false";
     options.InstanceName = builder.Configuration["Redis:InstanceName"] ?? "ChineseAuctionCache:";
 });
 
