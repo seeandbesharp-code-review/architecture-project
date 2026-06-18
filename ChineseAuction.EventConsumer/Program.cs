@@ -108,11 +108,6 @@ try
                         // עיבוד לפי סוג האירוע
                         switch (eventType.ToUpperInvariant())
                         {
-                            case "PURCHASE_CREATED":
-                            case "PURCHASE":
-                                HandlePurchaseEvent(cr.Message.Value, logger);
-                                break;
-
                             case "LOTTERY_WINNER":
                             case "LOTTERY":
                                 HandleLotteryEvent(cr.Message.Value, logger);
@@ -154,81 +149,6 @@ catch (Exception ex)
 finally
 {
     await Log.CloseAndFlushAsync();
-}
-
-/// <summary>
-/// עיבוד אירוע רכישה
-/// כאן אפשר להוסיף לוגיקה נוספת:
-/// - שמירה לקובץ
-/// - שליחה לDB
-/// - עדכון לאפליקציה חיצונית
-/// וכו'
-/// </summary>
-static void HandlePurchaseEvent(string messageValue, Serilog.ILogger logger)
-{
-    logger.Information("=== PURCHASE EVENT ===");
-    logger.Information($"Full Event: {messageValue}");
-
-    try
-    {
-        var doc = JsonDocument.Parse(messageValue);
-        var root = doc.RootElement;
-
-        // safe helpers
-        static string GetString(JsonElement el, params string[] names)
-        {
-            foreach (var n in names)
-            {
-                if (el.TryGetProperty(n, out var p) && p.ValueKind != JsonValueKind.Null)
-                {
-                    try { return p.GetString(); } catch { }
-                }
-            }
-            return null;
-        }
-
-        static int? GetInt(JsonElement el, params string[] names)
-        {
-            foreach (var n in names)
-            {
-                if (el.TryGetProperty(n, out var p) && p.ValueKind != JsonValueKind.Null)
-                {
-                    if (p.ValueKind == JsonValueKind.Number && p.TryGetInt32(out var i)) return i;
-                    if (p.ValueKind == JsonValueKind.String && int.TryParse(p.GetString(), out var j)) return j;
-                }
-            }
-            return null;
-        }
-
-        try
-        {
-            var purchaseId = GetInt(root, "PurchaseId", "purchaseId");
-
-            var userEl = root.TryGetProperty("User", out var u) ? u : (root.TryGetProperty("user", out var uu) ? uu : default(JsonElement));
-            var userId = userEl.ValueKind != JsonValueKind.Undefined ? GetInt(userEl, "Id", "id") : null;
-            var firstName = userEl.ValueKind != JsonValueKind.Undefined ? GetString(userEl, "FirstName", "firstName") : null;
-            var lastName = userEl.ValueKind != JsonValueKind.Undefined ? GetString(userEl, "LastName", "lastName") : null;
-            var userEmail = userEl.ValueKind != JsonValueKind.Undefined ? GetString(userEl, "Email", "email") : null;
-
-            var giftEl = root.TryGetProperty("Gift", out var g) ? g : (root.TryGetProperty("gift", out var gg) ? gg : default(JsonElement));
-            var giftName = giftEl.ValueKind != JsonValueKind.Undefined ? GetString(giftEl, "Name", "name") : null;
-
-            var purchaseDate = GetString(root, "PurchaseDate", "purchaseDate", "createdAt", "CreatedAt");
-
-            logger.Information($"Purchase ID: {purchaseId?.ToString() ?? "<missing>"}");
-            logger.Information($"User: {(firstName ?? "?")} {(lastName ?? "?")} ({userEmail ?? "?"})");
-            logger.Information($"Gift: {giftName ?? "?"}");
-            logger.Information($"Purchase Date: {purchaseDate ?? "?"}");
-        }
-        catch (Exception ex)
-        {
-            logger.Error(ex, "Error processing purchase event");
-        }
-    }
-    catch (Exception ex)
-    {
-        logger.Error(ex, "Error processing purchase event");
-    }
 }
 
 /// <summary>

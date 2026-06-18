@@ -8,20 +8,19 @@ namespace Chinese_Auction.Services
     /// </summary>
     public interface IKafkaProducerService
     {
-        Task SendPurchaseEventAsync(object purchaseData);
         Task SendLotteryEventAsync(object lotteryData);
     }
 
     /// <summary>
     /// שירות ל-Kafka Producer
     /// 
-    /// מטרה: שליחת הודעות ל-Kafka עבור אירועים של רכישות והגרלות
+    /// מטרה: שליחת הודעות ל-Kafka עבור אירועים של הגרלות
     /// 
     /// כל הודעה מכילה:
     /// - פרטי המשתמש (ID, אימייל, שם)
     /// - פרטי המתנה (ID, שם, תיאור)
     /// - טיימסטאמפ של האירוע
-    /// - סוג האירוע (רכישה או הגרלה)
+    /// - סוג האירוע (הגרלה)
     /// </summary>
     public class KafkaProducerService : IKafkaProducerService
     {
@@ -71,51 +70,7 @@ namespace Chinese_Auction.Services
         }
 
         /// <summary>
-        /// שליחת אירוע רכישה ל-Kafka
-        /// 
-        /// שלבים:
-        /// 1. המרת הנתונים ל-JSON
-        /// 2. יצירת Kafka Message עם Key (לחלוקה לPartitions)
-        /// 3. שליחה דרך Producer
-        /// 4. לוגינג של הודעת הצלחה
-        /// </summary>
-        public async Task SendPurchaseEventAsync(object purchaseData)
-        {
-            try
-            {
-                // המרת object ל-JSON
-                var messageValue = JsonSerializer.Serialize(purchaseData);
-                
-                // יצירת key על בסיס timestamp (תוך חלוקה לpartitions)
-                var messageKey = DateTime.UtcNow.Ticks.ToString();
-
-                // יצירת Kafka Message
-                var message = new Message<string, string>
-                {
-                    Key = messageKey,
-                    Value = messageValue,
-                    Timestamp = new Timestamp(DateTime.UtcNow)
-                };
-
-                // שליחה אסינכרונית ל-Kafka
-                var deliveryReport = await _producer.ProduceAsync(_topic, message);
-
-                _logger.LogInformation(
-                    $"Purchase event sent to Kafka Topic: {deliveryReport.Topic}, " +
-                    $"Partition: {deliveryReport.Partition}, " +
-                    $"Offset: {deliveryReport.Offset}");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error sending purchase event to Kafka");
-                throw;
-            }
-        }
-
-        /// <summary>
         /// שליחת אירוע הגרלה ל-Kafka
-        /// 
-        /// דומה ל-SendPurchaseEventAsync אך מיועד להגרלות
         /// </summary>
         public async Task SendLotteryEventAsync(object lotteryData)
         {

@@ -88,44 +88,6 @@ namespace Chinese_Auction.Services
             }
 
             var savedPurchases = await _purchaseRepository.AddPurchasesRangeAsync(finalPurchases);
-            
-            // שליחת אירוע לכל רכישה ל-Kafka
-            foreach (var purchase in savedPurchases)
-            {
-                var user = await _userRepository.GetUserById(purchase.User_Id);
-                var gift = await _giftRepository.GetGiftByIdAsync(purchase.Gift_Id);
-                
-                if (user != null && gift != null)
-                {
-                    var purchaseEvent = new
-                    {
-                        EventType = "PURCHASE_CREATED",
-                        EventTimestamp = DateTime.UtcNow,
-                        PurchaseId = purchase.Id,
-                        User = new
-                        {
-                            Id = user.Id,
-                            Email = user.Email,
-                            FirstName = user.First_name,
-                            LastName = user.Last_name,
-                            Phone = user.Phone
-                        },
-                        Gift = new
-                        {
-                            Id = gift.Id,
-                            Name = gift.Name,
-                            Description = gift.Description,
-                            Picture = gift.Picture
-                        },
-                        PackageId = uniqueGroupId,
-                        PurchaseDate = purchase.Purchase_Date
-                    };
-
-                    await _kafkaProducerService.SendPurchaseEventAsync(purchaseEvent);
-                    _logger.LogInformation($"Purchase event sent to Kafka for Purchase ID: {purchase.Id}");
-                }
-            }
-
             return _mapper.Map<IEnumerable<GetPurchaseDto>>(savedPurchases);
         }
 
