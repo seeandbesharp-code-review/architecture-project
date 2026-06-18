@@ -15,8 +15,16 @@ namespace Chinese_Auction.Services
         private readonly IEmailService _emailService;
         private readonly IUserRepository _userRepository;
         private readonly IGiftRepository _giftRepository;
+        private readonly IKafkaProducerService _kafkaProducerService;
 
-        public PurchaseService(ILogger<PurchaseService> logger, IPurchaseRepository purchaseRepository, IMapper mapper, IEmailService emailService, IUserRepository userRepository, IGiftRepository giftRepository)
+        public PurchaseService(
+            ILogger<PurchaseService> logger,
+            IPurchaseRepository purchaseRepository,
+            IMapper mapper,
+            IEmailService emailService,
+            IUserRepository userRepository,
+            IGiftRepository giftRepository,
+            IKafkaProducerService kafkaProducerService)
         {
             _logger = logger;
             _purchaseRepository = purchaseRepository;
@@ -24,6 +32,7 @@ namespace Chinese_Auction.Services
             _emailService = emailService;
             _userRepository = userRepository;
             _giftRepository = giftRepository;
+            _kafkaProducerService = kafkaProducerService;
         }
 
         public async Task<IEnumerable<GetPurchaseDto>> GetAllPurchasesAsync()
@@ -79,6 +88,44 @@ namespace Chinese_Auction.Services
             }
 
             var savedPurchases = await _purchaseRepository.AddPurchasesRangeAsync(finalPurchases);
+            
+            // שליחת אירוע לכל רכישה ל-Kafka
+            foreach (var purchase in savedPurchases)
+            {
+                var user = await _userRepository.GetUserById(purchase.User_Id);
+                var gift = await _giftRepository.GetGiftByIdAsync(purchase.Gift_Id);
+                
+                if (user != null && gift != null)
+                {
+                    var purchaseEvent = new
+                    {
+                        EventType = "PURCHASE_CREATED",
+                        EventTimestamp = DateTime.UtcNow,
+                        PurchaseId = purchase.Id,
+                        User = new
+                        {
+                            Id = user.Id,
+                            Email = user.Email,
+                            FirstName = user.First_name,
+                            LastName = user.Last_name,
+                            Phone = user.Phone
+                        },
+                        Gift = new
+                        {
+                            Id = gift.Id,
+                            Name = gift.Name,
+                            Description = gift.Description,
+                            Picture = gift.Picture
+                        },
+                        PackageId = uniqueGroupId,
+                        PurchaseDate = purchase.Purchase_Date
+                    };
+
+                    await _kafkaProducerService.SendPurchaseEventAsync(purchaseEvent);
+                    _logger.LogInformation($"Purchase event sent to Kafka for Purchase ID: {purchase.Id}");
+                }
+            }
+
             return _mapper.Map<IEnumerable<GetPurchaseDto>>(savedPurchases);
         }
 
@@ -120,14 +167,49 @@ namespace Chinese_Auction.Services
                 _logger.LogWarning("No purchases found for Gift ID {GiftId}. Cannot conduct lottery.", giftId);
                 throw new Exception("לא נמצאו משתתפים להגרלה עבור מתנה זו");
             }
+            
             var random = new Random();
             var allPurchasesList = allPurchases.ToList();
             var winner = allPurchasesList[random.Next(allPurchasesList.Count)];
             var winnerDto = _mapper.Map<GetPurchaseDto>(winner);
             winner.Is_Won = true;
-            var updated=await _giftRepository.UpdateGiftLotteryAsync(giftId);
+            
+            var updated = await _giftRepository.UpdateGiftLotteryAsync(giftId);
             await _purchaseRepository.UpdatePurchaseAsync(winner);
-            await SendNotificationEmail(winnerDto,giftId);
+            
+            // שליחת אירוע הגרלה ל-Kafka
+            var winnerUser = await _userRepository.GetUserById(winner.User_Id);
+            if (winnerUser != null)
+            {
+                var lotteryEvent = new
+                {
+                    EventType = "LOTTERY_WINNER",
+                    EventTimestamp = DateTime.UtcNow,
+                    PurchaseId = winner.Id,
+                    Winner = new
+                    {
+                        Id = winnerUser.Id,
+                        Email = winnerUser.Email,
+                        FirstName = winnerUser.First_name,
+                        LastName = winnerUser.Last_name,
+                        Phone = winnerUser.Phone
+                    },
+                    Gift = new
+                    {
+                        Id = gift.Id,
+                        Name = gift.Name,
+                        Description = gift.Description,
+                        Picture = gift.Picture
+                    },
+                    LotteryDate = DateTime.UtcNow,
+                    TotalParticipants = allPurchasesList.Count
+                };
+
+                await _kafkaProducerService.SendLotteryEventAsync(lotteryEvent);
+                _logger.LogInformation($"Lottery event sent to Kafka for Gift ID: {giftId}, Winner ID: {winnerUser.Id}");
+            }
+            
+            await SendNotificationEmail(winnerDto, giftId);
             return _mapper.Map<GetPurchaseDto>(winner); 
         }
 

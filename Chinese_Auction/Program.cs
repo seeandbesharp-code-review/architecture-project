@@ -77,6 +77,7 @@ builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IPurchaseService, PurchaseService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
+builder.Services.AddScoped<IKafkaProducerService, KafkaProducerService>();
 
 
 
@@ -108,13 +109,21 @@ builder.Services.AddAuthentication(options =>
     {
         OnAuthenticationFailed = context =>
         {
-            //Log.Warning("JWT Authentication failed: {Error}", context.Exception.Message);
+            Log.Error(context.Exception, "JWT Authentication failed: {Message}", context.Exception?.Message);
+            return Task.CompletedTask;
+        },
+        OnMessageReceived = context =>
+        {
+            var token = context.Request.Headers["Authorization"].ToString();
+            if (string.IsNullOrEmpty(token)) Log.Warning("No Authorization header received for incoming request to {Path}", context.Request.Path);
+            else Log.Debug("Authorization header received (length={Len}) for {Path}", token.Length, context.Request.Path);
             return Task.CompletedTask;
         },
         OnTokenValidated = context =>
         {
             var userId = context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            //Log.Debug("JWT token validated for user {UserId}", userId);
+            var role = context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
+            Log.Information("JWT validated for user {UserId} role={Role}", userId, role);
             return Task.CompletedTask;
         }
     };
@@ -177,6 +186,32 @@ builder.Services.AddControllers()
 
 
 var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<ChineseAuctionDbContext>();
+    var retries = 6;
+    while (true)
+    {
+        try
+        {
+            dbContext.Database.Migrate();
+            break;
+        }
+        catch (Exception ex)
+        {
+            retries--;
+            if (retries <= 0)
+            {
+                Log.Error(ex, "Failed to apply database migrations after retries. Starting without completing migrations.");
+                // Break out and allow the app to start even if migrations failed.
+                break;
+            }
+            Log.Warning(ex, "Database is not ready yet. Retrying in 5 seconds...");
+            System.Threading.Thread.Sleep(TimeSpan.FromSeconds(5));
+        }
+    }
+}
 
 app.UseCors("AllowAngular");
 

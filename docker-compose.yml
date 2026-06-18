@@ -1,6 +1,48 @@
-version: '3.9'
-
 services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-log:/var/lib/zookeeper/log
+    restart: unless-stopped
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # Advertise internal Docker listener as 'kafka:29092' and host-accessible listener using host.docker.internal
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://host.docker.internal:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    restart: unless-stopped
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    depends_on:
+      - kafka
+    restart: unless-stopped
+
   redis:
     image: redis:7.2-alpine
     command: ["redis-server", "--requirepass", "YourStrong@123"]
@@ -8,6 +50,18 @@ services:
       - "6379:6379"
     volumes:
       - redis-data:/data
+    restart: unless-stopped
+
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      SA_PASSWORD: "YourStrong@123"
+      MSSQL_PID: "Express"
+    ports:
+      - "1433:1433"
+    volumes:
+      - mssql-data:/var/opt/mssql
     restart: unless-stopped
 
   api:
@@ -18,14 +72,38 @@ services:
       - "5000:80"
     depends_on:
       - redis
+      - kafka
+      - mssql
     environment:
       ConnectionStrings__Redis: "redis:6379,password=YourStrong@123,abortConnect=false"
       Redis__InstanceName: "ChineseAuctionCache:"
       Redis__GiftListTTLSeconds: "60"
       ASPNETCORE_URLS: "http://+:80"
-      # אם תרצי להפעיל את ה-API מול SQL Server מקומי במקום LocalDB, עדכני את מיתאם החיבור כאן
-      ConnectionStrings__DefaultConnection: "Server=host.docker.internal;Database=Chinese_Auction;Integrated Security=True;TrustServerCertificate=True;"
+      ASPNETCORE_ENVIRONMENT: "Development"
+      Kafka__BootstrapServers: "kafka:29092"
+      Kafka__Topic: "purchase-events"
+      ConnectionStrings__DefaultConnection: "Server=mssql;Database=Chinese_Auction;User Id=sa;Password=YourStrong@123;TrustServerCertificate=True;"
+
+  event-consumer:
+    build:
+      context: .
+      dockerfile: ChineseAuction.EventConsumer/Dockerfile
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      KAFKA_TOPIC: "purchase-events"
+      KAFKA_GROUP_ID: "chinese-auction-consumer"
+    restart: unless-stopped
 
 volumes:
   redis-data:
+    driver: local
+  mssql-data:
+    driver: local
+  zookeeper-data:
+    driver: local
+  zookeeper-log:
+    driver: local
+  kafka-data:
     driver: local
